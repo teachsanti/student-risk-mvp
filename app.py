@@ -4,6 +4,43 @@ import pandas as pd
 import streamlit as st
 import joblib
 
+def train_demo_model(train_csv='data/students_train_synth_v1.csv'):
+    import joblib
+    import pandas as pd
+    from sklearn.compose import ColumnTransformer
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.linear_model import LogisticRegression
+
+    NUMERIC_FEATURES = ['gpa','failed_subjects','attendance_pct','late_count',
+                        'discipline_points','midterm_avg','final_avg']
+    CATEGORICAL_FEATURES = ['grade_level']
+
+    df = pd.read_csv(train_csv)
+    X = df[NUMERIC_FEATURES + CATEGORICAL_FEATURES]
+    y = df['label'].astype(int)
+
+    numeric_pipe = Pipeline([('imputer', SimpleImputer(strategy='median')),
+                             ('scaler', StandardScaler())])
+    categorical_pipe = Pipeline([('imputer', SimpleImputer(strategy='most_frequent')),
+                                 ('ohe', OneHotEncoder(handle_unknown='ignore'))])
+    pre = ColumnTransformer([('num', numeric_pipe, NUMERIC_FEATURES),
+                             ('cat', categorical_pipe, CATEGORICAL_FEATURES)])
+    clf = LogisticRegression(max_iter=200, class_weight='balanced')
+    pipe = Pipeline([('prep', pre), ('clf', clf)])
+    pipe.fit(X, y)
+
+    joblib.dump(pipe, MODEL_PATH)
+    with open(META_PATH, 'w', encoding='utf-8') as f:
+        import json; json.dump({
+            'numeric_features': NUMERIC_FEATURES,
+            'categorical_features': CATEGORICAL_FEATURES,
+            'target': 'label'
+        }, f, ensure_ascii=False, indent=2)
+    return pipe
+
+
 MODEL_PATH = 'models/model.joblib'
 META_PATH = 'models/meta.json'
 
@@ -18,6 +55,23 @@ def load_model():
 
 model = load_model()
 
+# ... หลังอ่านไฟล์ CSV แล้ว ก่อน predict_proba(...)
+if model is None:
+    st.warning('ยังไม่มีโมเดลที่ฝึกแล้ว')
+    if st.button('ฝึกโมเดลเดโมตอนนี้ (ใช้ data/students_train_synth_v1.csv)'):
+        model = train_demo_model()
+        st.success('ฝึกโมเดลและบันทึกไว้ที่ models/model.joblib แล้ว')
+    else:
+        st.stop()
+
+# ตอนคำนวณความเสี่ยง
+try:
+    proba = model.predict_proba(X)[:, 1]
+except Exception as e:
+    st.warning(f'โมเดลที่โหลดมาใช้ไม่ได้กับเวอร์ชันนี้: {e}')
+    if st.button('ฝึกโมเดลใหม่บนเซิร์ฟเวอร์ (เดโม)'):
+        model = train_demo_model()
+        proba = model.predict_proba(X)[:, 1]
 st.markdown("""
 อัปโหลดไฟล์ **CSV** ที่มีคอลัมน์:
 `student_id, grade_level, gpa, failed_subjects, attendance_pct, late_count, discipline_points, midterm_avg, final_avg`
